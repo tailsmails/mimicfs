@@ -428,83 +428,150 @@ fn wipe_ram(path string) {
 }
 
 fn start_app_core(pkg string, pw string) int {
-	kill_disk_swap()
-	if _unlikely_(!exists('/data/data/${pkg}')) {
-		return 1
-	}
-	u, c := get_meta('/data/data/${pkg}')
-	pid := pkg.replace('.', '_')
-	dp := '/data/data/${pkg}'
-	rp := '/mnt/ram_${pid}'
-	vf := '/data/local/tmp/${pkg}.enc'
-	pedp := '/data/media/0/Android/data/${pkg}'
-	vedp := '/storage/emulated/0/Android/data/${pkg}'
-	redp := '/mnt/runtime/write/emulated/0/Android/data/${pkg}'
-	erp := '/mnt/ext_${pid}'
-	evf := '/data/local/tmp/${pkg}.ext.enc'
-	kill_app(pkg)
-	run('umount -l ${dp}')
-	run('mkdir -p ${rp}')
-	mut needed_storage := 1024
-	mut needed_data := 1024
-	if _likely_(exists(evf) && exists(vf)) {
-		res := os.execute('du -sm ${evf} 2>/dev/null')
-		res_two := os.execute('du -sm ${vf} 2>/dev/null')
-		if _unlikely_(res.exit_code != 0 && res_two.exit_code != 0) {
-		} else {
-			needed_storage = res.output.split('\t')[0].int() * 5
-			needed_data = res_two.output.split('\t')[0].int() * 5
-		}
-	}
-	run('mount -t tmpfs -o size=${needed_data}M,mode=771 tmpfs ${rp}')
-	if exists(vf) {
-		os.setenv('V_PW', pw, true)
-		if os.execute('openssl enc -chacha20 -d -pbkdf2 -iter 200000 -md sha512 -pass env:V_PW -in ${vf} | zstd -d | tar -xp --numeric-owner -C ${rp}').exit_code != 0 {
-			error2('WRONG PW OR BROKEN FILE')
-			run('umount -f ${rp}')
-			run('umount -f ${erp}')
-			run('rm -rf ${rp} ${erp}')
-			run('restorecon -R ${dp}')
-			run('pm enable ${pkg}')
+	for b in pkg.bytes() {
+		if !((b >= 97 && b <= 122) || (b >= 65 && b <= 90) || (b >= 48 && b <= 57) || b == 46 || b == 95) {
 			return 1
 		}
-		os.unsetenv('V_PW')
-	} else {
-		run('cp -a ${dp}/. ${rp}/')
 	}
-	run('chown -R ${u}:${u} ${rp}')
-	run('chcon -R ${c} ${rp}')
-	run('mount --bind ${rp} ${dp}')
-	if exists(pedp) || exists(evf) {
-		run('umount -l ${pedp}')
-		run('umount -l ${vedp}')
-		run('umount -l ${redp}')
-		run('mkdir -p ${erp}')
-		run('mount -t tmpfs -o size=${needed_storage}M,mode=770,uid=${u},gid=9997 tmpfs ${erp}')
-		if _likely_(exists(evf)) {
-			os.setenv('V_PW', pw, true)
-			if os.execute('openssl enc -chacha20 -d -pbkdf2 -iter 200000 -md sha512 -pass env:V_PW -in ${evf} | zstd -d | tar -xp --numeric-owner -C ${erp}').exit_code != 0 {
+
+	kill_disk_swap()
+
+	if !os.exists('/data/data/${pkg}') {
+		return 1
+	}
+
+	u, c := get_meta('/data/data/${pkg}')
+	
+	safe_pkg := "'${pkg}'"
+	pid := pkg.replace('.', '_')
+	
+	dp := '/data/data/${pkg}'
+	safe_dp := "'${dp}'"
+	
+	rp := '/mnt/ram_${pid}'
+	safe_rp := "'${rp}'"
+	
+	vf := '/data/local/tmp/${pkg}.enc'
+	safe_vf := "'${vf}'"
+	
+	pedp := '/data/media/0/Android/data/${pkg}'
+	safe_pedp := "'${pedp}'"
+	
+	vedp := '/storage/emulated/0/Android/data/${pkg}'
+	safe_vedp := "'${vedp}'"
+	
+	redp := '/mnt/runtime/write/emulated/0/Android/data/${pkg}'
+	safe_redp := "'${redp}'"
+	
+	erp := '/mnt/ext_${pid}'
+	safe_erp := "'${erp}'"
+	
+	evf := '/data/local/tmp/${pkg}.ext.enc'
+	safe_evf := "'${evf}'"
+
+	kill_app(pkg)
+	run('umount -l ${safe_dp}')
+	run('mkdir -p ${safe_rp}')
+
+	mut needed_storage := 1024
+	mut needed_data := 1024
+
+	if os.exists(evf) && os.exists(vf) {
+		res := os.execute('du -sm ${safe_evf} 2>/dev/null')
+		res_two := os.execute('du -sm ${safe_vf} 2>/dev/null')
+
+		if res.exit_code == 0 {
+			parts := res.output.split('\t')
+			if parts.len > 0 {
+				val := parts[0].int()
+				if val > 0 {
+					needed_storage = val * 5
+				}
+			}
+		}
+
+		if res_two.exit_code == 0 {
+			parts := res_two.output.split('\t')
+			if parts.len > 0 {
+				val := parts[0].int()
+				if val > 0 {
+					needed_data = val * 5
+				}
+			}
+		}
+	}
+
+	run('mount -t tmpfs -o size=${needed_data}M,mode=771 tmpfs ${safe_rp}')
+
+	if os.exists(vf) {
+		cmd_main := 'openssl enc -chacha20 -d -pbkdf2 -iter 200000 -md sha512 -pass stdin -in ${safe_vf} | zstd -d | tar -xp --numeric-owner -C ${safe_rp}'
+		
+		mut proc_main := os.new_process('/bin/sh')
+		proc_main.set_args(['-c', cmd_main])
+		proc_main.set_redirect_stdio()
+		proc_main.run()
+		proc_main.stdin_write(pw)
+		os.fd_close(proc_main.stdio_fd[0])
+		proc_main.wait()
+		
+		if proc_main.code != 0 {
+			error2('WRONG PW OR BROKEN FILE')
+			run('umount -f ${safe_rp}')
+			run('umount -f ${safe_erp}')
+			run('rm -rf ${safe_rp} ${safe_erp}')
+			run('restorecon -R ${safe_dp}')
+			run('pm enable ${safe_pkg}')
+			return 1
+		}
+	} else {
+		run('cp -a ${safe_dp}/. ${safe_rp}/')
+	}
+
+	run('chown -R ${u}:${u} ${safe_rp}')
+	run('chcon -R ${c} ${safe_rp}')
+	run('mount --bind ${safe_rp} ${safe_dp}')
+
+	if os.exists(pedp) || os.exists(evf) {
+		run('umount -l ${safe_pedp}')
+		run('umount -l ${safe_vedp}')
+		run('umount -l ${safe_redp}')
+		run('mkdir -p ${safe_erp}')
+		run('mount -t tmpfs -o size=${needed_storage}M,mode=770,uid=${u},gid=9997 tmpfs ${safe_erp}')
+
+		if os.exists(evf) {
+			cmd_ext := 'openssl enc -chacha20 -d -pbkdf2 -iter 200000 -md sha512 -pass stdin -in ${safe_evf} | zstd -d | tar -xp --numeric-owner -C ${safe_erp}'
+			
+			mut proc_ext := os.new_process('/bin/sh')
+			proc_ext.set_args(['-c', cmd_ext])
+			proc_ext.set_redirect_stdio()
+			proc_ext.run()
+			proc_ext.stdin_write(pw)
+			os.fd_close(proc_ext.stdio_fd[0])
+			proc_ext.wait()
+
+			if proc_ext.code != 0 {
 				error2('WRONG PW OR BROKEN FILE')
-				run('umount -f ${rp}')
-				run('umount -f ${erp}')
-				run('rm -rf ${rp} ${erp}')
-				run('restorecon -R ${dp}')
-				run('pm enable ${pkg}')
+				run('umount -f ${safe_rp}')
+				run('umount -f ${safe_erp}')
+				run('rm -rf ${safe_rp} ${safe_erp}')
+				run('restorecon -R ${safe_dp}')
+				run('pm enable ${safe_pkg}')
 				return 1
 			}
-			os.unsetenv('V_PW')
 		} else {
-			run('cp -a ${pedp}/. ${erp}/')
+			run('cp -a ${safe_pedp}/. ${safe_erp}/')
 		}
-		run('chown -R ${u}:9997 ${erp}')
-		run('chcon -R u:object_r:media_rw_data_file:s0 ${erp}')
-		run('mount --bind ${erp} ${pedp}')
-		run('mount --bind ${erp} ${vedp}')
-		run('nsenter -t 1 -m mount --bind ${erp} ${pedp}')
-		run('nsenter -t 1 -m mount --bind ${erp} ${vedp}')
-		run('nsenter -t 1 -m mount --bind ${erp} ${redp}')
+
+		run('chown -R ${u}:9997 ${safe_erp}')
+		run('chcon -R u:object_r:media_rw_data_file:s0 ${safe_erp}')
+		run('mount --bind ${safe_erp} ${safe_pedp}')
+		run('mount --bind ${safe_erp} ${safe_vedp}')
+		run('nsenter -t 1 -m mount --bind ${safe_erp} ${safe_pedp}')
+		run('nsenter -t 1 -m mount --bind ${safe_erp} ${safe_vedp}')
+		run('nsenter -t 1 -m mount --bind ${safe_erp} ${safe_redp}')
 	}
-	run('pm enable ${pkg}')
+
+	run('pm enable ${safe_pkg}')
 	return 0
 }
 
