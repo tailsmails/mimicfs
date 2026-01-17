@@ -948,6 +948,9 @@ fn list_core() {
 }
 
 fn is_valid_pkg(s string) bool {
+	if !os.exists("/data/data/${s}") {
+		return false
+	}
 	if s.len == 0 {
 		return false
 	}
@@ -984,6 +987,69 @@ fn get_input_dialog(title string, hint string, is_pw bool) string {
 	return res.output.all_after('"text": "').all_before('"').trim_space()
 }
 
+fn extc_start(pkg string, path string, needed_data int) int {
+	for b in pkg.bytes() {
+		if !((b >= 97 && b <= 122) || (b >= 65 && b <= 90) || (b >= 48 && b <= 57) || b == 46 || b == 95) {
+			return 1
+		}
+	}
+	for b in path.bytes() {
+		if !((b >= 97 && b <= 122) || (b >= 65 && b <= 90) || (b >= 48 && b <= 57)) {
+			return 1
+		}
+	}
+	safe_path_1 := "\"/data/media/0/${path}\""
+	safe_path_2 := "\"/storage/emulated/0/${path}\""
+	safe_path_3 := "\"/mnt/extc_${path}\""
+	safe_redp := '\"/mnt/runtime/write/emulated/0/${path}\"'
+	
+	if !os.exists("/data/media/0/${path}") {
+		return 1
+	}
+	
+	u := os.execute('stat -c %u \'/data/data/${pkg}\'').output.trim_space()
+	run('mount -t tmpfs -o size=${needed_data}M,mode=771 tmpfs ${safe_path_3}')
+	run("umount -l ${safe_path_1}")
+	run("umount -l ${safe_path_2}")
+	run("umount -l ${safe_path_3}")
+	run("umount -l ${safe_redp}")
+	
+	if _likely_(os.execute('mkdir ${safe_path_3}').exit_code == 0) {
+		run("chown -R ${u}:${u} ${safe_path_3}")
+		run("chcon -R u:object_r:media_rw_data_file:s0 ${safe_path_3}")
+		run("chmod 777 ${safe_path_3}")
+		run("mount --bind ${safe_path_3} ${safe_path_2}")
+		run("mount --bind ${safe_path_3} ${safe_path_1}")
+		run('nsenter -t 1 -m mount --bind ${safe_path_3} ${safe_redp}')
+		run('nsenter -t 1 -m mount --bind ${safe_path_3} ${safe_path_2}')
+		run('nsenter -t 1 -m mount --bind ${safe_path_3} ${safe_path_1}')
+	}
+	return 0
+}
+
+fn extc_stop(path string) int {
+	for b in path.bytes() {
+		if !((b >= 97 && b <= 122) || (b >= 65 && b <= 90) || (b >= 48 && b <= 57)) {
+			return 1
+		}
+	}
+	safe_path_1 := "\"/data/media/0/${path}\""
+	safe_path_2 := "\"/storage/emulated/0/${path}\""
+	safe_path_3 := "\"/mnt/extc_${path}\""
+	safe_redp := '\"/mnt/runtime/write/emulated/0/${path}\"'
+	
+	if !os.exists("/mnt/extc_${path}") {
+		return 1
+	}
+	
+	run("umount -l ${safe_path_1}")
+	run("umount -l ${safe_path_2}")
+	run("umount -l ${safe_path_3}")
+	run("umount -l ${safe_redp}")
+	run("rm -rf ${safe_path_3}")
+	return 0
+}
+
 fn frame(x voidptr) {
 	logo := "
 	___  ____           _     ______ _____ 
@@ -1010,7 +1076,7 @@ fn frame(x voidptr) {
 			app.tui.draw_text(4, 4 + i, opt)
 		}
 	}
-	app.tui.draw_text(2, 16, term.gray('Arrows: Move | Enter: Action | Q: Exit'))
+	app.tui.draw_text(2, 20, term.gray('Arrows: Move | Enter: Action | Q: Exit'))
 	app.tui.flush()
 }
 
@@ -1032,7 +1098,6 @@ fn sync_tapi() {
 }
 
 fn event(e &tui.Event, x voidptr) {
-	time.sleep(10 * time.millisecond)
 	mut app := unsafe { &App(x) }
 	if e.typ == .key_down {
 		match e.code {
@@ -1079,6 +1144,15 @@ fn event(e &tui.Event, x voidptr) {
 			.d {
 				app.selected_idx = 11
 			}
+			.c {
+				app.selected_idx = 12
+			}
+			.e {
+				app.selected_idx = 13
+			}
+			.r {
+				app.selected_idx = 14
+			}
 			.enter {
 				println('')
 				os.execute('clear')
@@ -1091,7 +1165,8 @@ fn event(e &tui.Event, x voidptr) {
 							return
 						}
 						pw := get_input_dialog('Set Key', 'Encryption Password', true)
-						if pw == '' {
+						pw2 := get_input_dialog('Set Key Again', 'Encryption Password', true)
+						if pw == '' || pw != pw2 {
 							back_to_termux()
 							return
 						}
@@ -1119,7 +1194,8 @@ fn event(e &tui.Event, x voidptr) {
 							return
 						}
 						pw := get_input_dialog('Verify Key', 'Password', true)
-						if pw == '' {
+						pw2 := get_input_dialog('Verify Key Again', 'Password', true)
+						if pw == '' || pw2 != pw {
 							back_to_termux()
 							return
 						}
@@ -1169,7 +1245,8 @@ fn event(e &tui.Event, x voidptr) {
 							return
 						}
 						pw := get_input_dialog('Verify Key', 'Password', true)
-						if pw == '' {
+						pw2 := get_input_dialog('Verify Key Again', 'Password', true)
+						if pw == '' || pw2 != pw {
 							back_to_termux()
 							return
 						}
@@ -1206,7 +1283,8 @@ fn event(e &tui.Event, x voidptr) {
 							return
 						}
 						pw := get_input_dialog('Set Key', 'Encryption Password', true)
-						if pw == '' {
+						pw2 := get_input_dialog('Set Key Again', 'Encryption Password', true)
+						if pw == '' || pw2 != pw {
 							back_to_termux()
 							return
 						}
@@ -1218,6 +1296,37 @@ fn event(e &tui.Event, x voidptr) {
 					}
 					11 {
 						despy()
+					}
+					12 {
+						space := get_input_dialog('Config', 'The size of space in GB',
+							false).int()
+						back_to_termux()
+						if space > 0 { deep_cleaner_core(space) }
+					}
+					13 {
+						pkg := get_input_dialog('Extc', 'Package Name', false)
+						if !is_valid_pkg(pkg) {
+							back_to_termux()
+							return
+						}
+						path := get_input_dialog('Extc', 'Path Name (example /sdcard/yourpath = yourpath)', false)
+						if path == ""  {
+							back_to_termux()
+							return
+						}
+						size := get_input_dialog('Config', 'the size of tmpfs (in MB)',
+							false)
+						if size != '' {
+							extc_start(pkg, path, size.int())
+						}
+						back_to_termux()
+					}
+					14 {
+						path := get_input_dialog('UnExtc', 'Path Name (example /sdcard/yourpath = yourpath)', false)
+						back_to_termux()
+						if path != "" {
+							extc_stop(path)
+						}
 					}
 					else {}
 				}
@@ -1244,7 +1353,7 @@ fn check_dp() {
 		fatal('There is no shred installed')
 	}
 	if os.execute('which termux-dialog 2>/dev/null').exit_code != 0 {
-		fatal('There is no termux api installed')
+		fatal('There is no termux api installed OR you are in usermode')
 	}
 	if os.execute('ls /data/data/com.termux.api 2>/dev/null').exit_code != 0 {
 		fatal('There is no termux api (apk file) installed')
@@ -1279,6 +1388,17 @@ fn run_entropy_daemon() {
 	}
 }
 
+fn deep_cleaner_core(space int) {
+	if os.execute("touch /sdcard/n").exit_code == 0 {
+		os.execute("dd if=/dev/urandom of=/sdcard/n bs=1G count=${space} conv=fsync iflag=fullblock")
+		os.execute("rm -rf /sdcard/n")
+		os.execute("sync")
+		os.execute("sm fstrim")
+	} else {
+		fatal("the program can not create the /sdcard/n file")
+	}
+}
+
 fn main() {
 	check_dp()
 	spawn run_entropy_daemon()
@@ -1298,7 +1418,10 @@ fn main() {
 		'9. FORCE STOP APP',
 		'0. SYNC APP',
 		'Q. EXIT',
-		'D. DESPY'
+		'D. DESPY',
+		'C. DEEP CLEANING',
+		'E. EXTC [MOUNT A CUSTOM PATH FROM SDCARD]'
+		'R. UNEXTC [UMOUNT A PATH FROM SDCARD]'
 	]
 
 	mut colored_ops := []string{}
