@@ -998,33 +998,42 @@ fn extc_start(pkg string, path string, needed_data int) int {
 			return 1
 		}
 	}
-	safe_path_1 := "\"/data/media/0/${path}\""
-	safe_path_2 := "\"/storage/emulated/0/${path}\""
-	safe_path_3 := "\"/mnt/extc_${path}\""
-	safe_redp := '\"/mnt/runtime/write/emulated/0/${path}\"'
-	
-	if !os.exists("/data/media/0/${path}") {
+
+	s_path_1 := "/data/media/0/${path}"
+	s_path_2 := "/storage/emulated/0/${path}"
+	s_path_3 := "/mnt/extc_${path}"
+	s_redp := "/mnt/runtime/write/emulated/0/${path}"
+
+	if !os.exists(s_path_1) {
 		return 1
 	}
-	
-	u := os.execute('stat -c %u \'/data/data/${pkg}\'').output.trim_space()
-	run('mount -t tmpfs -o size=${needed_data}M,mode=771 tmpfs ${safe_path_3}')
-	run("umount -l ${safe_path_1}")
-	run("umount -l ${safe_path_2}")
-	run("umount -l ${safe_path_3}")
-	run("umount -l ${safe_redp}")
-	
-	if _likely_(os.execute('mkdir ${safe_path_3}').exit_code == 0) {
-		run("chown -R ${u}:${u} ${safe_path_3}")
-		run("chcon -R u:object_r:media_rw_data_file:s0 ${safe_path_3}")
-		run("chmod 777 ${safe_path_3}")
-		run("mount --bind ${safe_path_3} ${safe_path_2}")
-		run("mount --bind ${safe_path_3} ${safe_path_1}")
-		run('nsenter -t 1 -m mount --bind ${safe_path_3} ${safe_redp}')
-		run('nsenter -t 1 -m mount --bind ${safe_path_3} ${safe_path_2}')
-		run('nsenter -t 1 -m mount --bind ${safe_path_3} ${safe_path_1}')
+
+	stat_res := os.execute('stat -c %u /data/data/${pkg}')
+	if stat_res.exit_code != 0 {
+		return 1
 	}
-	return 0
+	u := stat_res.output.trim_space()
+
+	run("umount -l ${s_path_1}")
+	run("umount -l ${s_path_2}")
+	run("umount -l ${s_redp}")
+	run("umount -l ${s_path_3}")
+
+	run("mkdir -p ${s_path_3}")
+
+	if os.execute('mount -t tmpfs -o size=${needed_data}M,mode=771 tmpfs ${s_path_3}').exit_code == 0 {
+		run("chown -R ${u}:${u} ${s_path_3}")
+		run("chcon -R u:object_r:media_rw_data_file:s0 ${s_path_3}")
+		run("chmod 777 ${s_path_3}")
+		run("mount --bind ${s_path_3} ${s_path_2}")
+		run("mount --bind ${s_path_3} ${s_path_1}")
+		run('nsenter -t 1 -m mount --bind ${s_path_3} ${s_redp}')
+		run('nsenter -t 1 -m mount --bind ${s_path_3} ${s_path_2}')
+		run('nsenter -t 1 -m mount --bind ${s_path_3} ${s_path_1}')
+		return 0
+	}
+
+	return 1
 }
 
 fn extc_stop(path string) int {
@@ -1033,20 +1042,20 @@ fn extc_stop(path string) int {
 			return 1
 		}
 	}
-	safe_path_1 := "\"/data/media/0/${path}\""
-	safe_path_2 := "\"/storage/emulated/0/${path}\""
-	safe_path_3 := "\"/mnt/extc_${path}\""
-	safe_redp := '\"/mnt/runtime/write/emulated/0/${path}\"'
-	
-	if !os.exists("/mnt/extc_${path}") {
-		return 1
-	}
-	
-	run("umount -l ${safe_path_1}")
-	run("umount -l ${safe_path_2}")
-	run("umount -l ${safe_path_3}")
-	run("umount -l ${safe_redp}")
-	run("rm -rf ${safe_path_3}")
+
+	s_path_1 := "/data/media/0/${path}"
+	s_path_2 := "/storage/emulated/0/${path}"
+	s_path_3 := "/mnt/extc_${path}"
+	s_redp := "/mnt/runtime/write/emulated/0/${path}"
+
+	run("nsenter -t 1 -m umount -l ${s_path_1}")
+	run("nsenter -t 1 -m umount -l ${s_path_2}")
+	run("nsenter -t 1 -m umount -l ${s_redp}")
+	run("umount -l ${s_path_1}")
+	run("umount -l ${s_path_2}")
+	run("umount -l ${s_path_3}")
+	run("rm -rf ${s_path_3}")
+
 	return 0
 }
 
