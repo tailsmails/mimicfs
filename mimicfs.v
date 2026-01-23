@@ -739,6 +739,7 @@ fn get_first_int(output string) int {
 
 fn get_gui_pw(pkg string) string {
 	back_to_termuxapi()
+	time.sleep(1000 * time.millisecond)
 	uid := os.execute('stat -c %u /data/data/com.termux').output.trim_space()
 	res := os.execute('su ${uid} -c "export PATH=/data/data/com.termux/files/usr/bin; export TMPDIR=/data/data/com.termux/files/usr/tmp; termux-dialog text -p -t \'${pkg} - MimicFS\' -i \'Enter Key\'"')
 
@@ -978,6 +979,7 @@ mut:
 
 fn get_input_dialog(title string, hint string, is_pw bool) string {
 	back_to_termuxapi()
+	time.sleep(1000 * time.millisecond)
 	uid := os.execute('stat -c %u /data/data/com.termux').output.trim_space()
 	p_flag := if is_pw { '-p' } else { '' }
 	res := os.execute('su ${uid} -c "export PATH=/data/data/com.termux/files/usr/bin; export TMPDIR=/data/data/com.termux/files/usr/tmp; termux-dialog text ${p_flag} -t \'${title}\' -i \'${hint}\'"')
