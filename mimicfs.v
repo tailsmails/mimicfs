@@ -575,14 +575,45 @@ fn start_app_core(pkg string, pw string) int {
 	return 0
 }
 
+fn get_usage(path string) int {
+	res := os.execute('df ${path}')
+	if res.exit_code != 0 {
+		return 0
+	}
+	parts := res.output.fields()
+	for p in parts {
+		if p.ends_with('%') {
+			return p.replace('%', '').int()
+		}
+	}
+	return 0
+}
+
 fn stop_app_core(pkg string, pw string) {
 	pid := pkg.replace('.', '_')
 	dp := '/data/data/${pkg}'
 	rp := '/mnt/ram_${pid}'
 	erp := '/mnt/ext_${pid}'
+
+	mounts := os.execute('mount').output
+
+	if mounts.contains(rp) {
+		if get_usage(rp) >= 95 {
+			println('Error: ${rp} usage is over 95%')
+			return
+		}
+	}
+
+	if mounts.contains(erp) {
+		if get_usage(erp) >= 95 {
+			println('Error: ${erp} usage is over 95%')
+			return
+		}
+	}
+
 	run('am force-stop ${pkg}')
 	kill_app(pkg)
-	mounts := os.execute('mount').output
+	
 	os.setenv('V_PW', pw, true)
 	if mounts.contains(rp) {
 		run('tar -cp --numeric-owner -C ${rp} . | zstd | openssl enc -chacha20 -pbkdf2 -iter 200000 -md sha512 -salt -pass env:V_PW -out /data/local/tmp/${pkg}.enc')
