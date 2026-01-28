@@ -1110,7 +1110,7 @@ fn frame(x voidptr) {
 	val := int(brightness)
 	hex_color := (val << 16) | (val << 8) | val
 	app.tui.draw_text(30, 4, term.hex(hex_color, logo))
-	app.tui.draw_text(0, 2, term.gray('MimicFS | ver 2.0-Beta | Developed by zq | MIT License'))
+	app.tui.draw_text(0, 2, term.gray('MimicFS | ver 2.0-Beta | Developed by tailsmails (zq) | MIT License'))
 	for i, opt in app.options {
 		if i == app.selected_idx {
 			app.tui.draw_text(2, 4 + i, term.red(' [>] ${opt}'))
