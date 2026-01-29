@@ -348,6 +348,7 @@ fn warn(msg string) {
 
 fn error2(msg string) {
 	println('${term.red('✘')} ${msg}')
+	time.sleep(1400 * time.millisecond)
 }
 
 fn fatal(msg string) {
@@ -693,38 +694,54 @@ fn stop_nosave_core(pkg string) {
 }
 
 fn purge_all() {
-	manage_snapshot_protection(false)
-	mounts := os.execute('mount').output
-	for line in mounts.split_into_lines() {
-		if line.contains('/mnt/ram_') || line.contains('/mnt/ext_') {
-			target := line.split(' ')[2]
-			prefix := if target.contains('/mnt/ram_') { '/mnt/ram_' } else { '/mnt/ext_' }
-			pkg := target.all_after(prefix).replace('_', '.')
-			run('am force-stop ${pkg}')
-			run('pkill -9 -f ${pkg}')
-			run('pkill -9 -u $(stat -c %u /data/data/${pkg})')
-			wipe_ram(target)
-			run('umount -l ${target}')
-		}
-	}
-	enc_list := os.execute('ls /data/local/tmp/*.enc').output.split_into_lines()
-	for f in enc_list {
-		if f.len > 5 {
-			size_kb := os.execute('du -k ${f}').output.split('\t')[0]
-			run('dd if=/dev/urandom of=${f} bs=1K count=${size_kb} conv=fsync')
-			run('dd if=/dev/zero of=${f} bs=1K count=${size_kb} conv=fsync')
-			run('rm -f ${f}')
-		}
-	}
-	self := os.executable()
-	self_size := os.execute('du -k ${self}').output.split('\t')[0]
-	run('dd if=/dev/urandom of=${self} bs=1K count=${self_size} conv=fsync')
-	run('rm -f ${self}')
-	run('echo 3 > /proc/sys/vm/drop_caches')
-	run('sync')
-	run('sm fstrim')
-	run('logcat -b all -c')
-	run('reboot')
+    manage_snapshot_protection(false)
+    mounts_data := os.read_file('/proc/mounts') or { '' }
+    
+    for line in mounts_data.split_into_lines() {
+        fields := line.split(' ')
+        if fields.len < 2 { continue }
+        target := fields[1]
+
+        if target.contains('/mnt/ram_') || target.contains('/mnt/ext_') {
+            prefix := if target.contains('/mnt/ram_') { '/mnt/ram_' } else { '/mnt/ext_' }
+            pkg_raw := target.all_after(prefix).replace('_', '.')
+            
+            if !is_valid_pkg(pkg_raw) {
+                error2('Skipping invalid mount target: ${target}')
+                continue
+            }
+            
+            pkg := pkg_raw
+            os.execute('am force-stop ${pkg}')
+            stat_res := os.execute('stat -c %u /data/data/${pkg}')
+            if stat_res.exit_code == 0 {
+                uid := stat_res.output.trim_space()
+                os.execute('pkill -9 -u ${uid}')
+            } else {
+                 os.execute('killall -9 ${pkg}')
+            }
+
+            wipe_ram(target)
+            os.execute('umount -l "${target}"')
+        }
+    }
+    enc_files := os.glob('/data/local/tmp/*.enc') or { []string{} }
+    for f in enc_files {
+        if os.exists(f) && !os.is_link(f) {
+             os.execute('shred -n 1 -z -u "${f}"')
+        }
+    }
+    self := os.executable()
+    tmp_name := self + '.tmp'
+    os.mv(self, tmp_name) or { }
+    os.execute('shred -n 1 -z -u "${tmp_name}"')
+    os.write_file('/proc/sys/vm/drop_caches', '3') or {}
+    os.execute('sync')
+    os.execute('sm fstrim')
+    os.execute('logcat -b all -c')
+    
+    info('Emergency Purge Complete. Rebooting...')
+    os.execute('reboot')
 }
 
 fn get_fg_app() string {
@@ -939,22 +956,33 @@ fn cpw_core(pkg string, pw string, new_pw string) {
 }
 
 fn rem_pkg_core(pkg string) {
-	f := '/data/local/tmp/${pkg}.enc'
-	ef := '/data/local/tmp/${pkg}.ext.enc'
-	if _unlikely_(!exists(f)) {
-		fatal('DOUBLE_REM')
-	}
-	mut files_to_wipe := [f]
-	if exists(ef) {
-		files_to_wipe << ef
-	}
-	for path in files_to_wipe {
-		size_kb := os.execute('du -k "${path}"').output.split('\t')[0]
-		run('dd if=/dev/urandom of="${path}" bs=1K count=${size_kb} conv=fsync')
-		run('dd if=/dev/zero of="${path}" bs=1K count=${size_kb} conv=fsync')
-		run('rm -f "${path}"')
-	}
-	run('sm fstrim')
+    if !is_valid_pkg(pkg) {
+        error2('Invalid package name')
+    }
+    f := '/data/local/tmp/${pkg}.enc'
+    ef := '/data/local/tmp/${pkg}.ext.enc'
+    mut files_to_wipe := []string{}
+    if os.exists(f) { files_to_wipe << f }
+    if os.exists(ef) { files_to_wipe << ef }
+
+    if files_to_wipe.len == 0 {
+         error2('DOUBLE_REM: No files found.')
+         return
+    }
+    for path in files_to_wipe {
+        if os.is_link(path) {
+            warn('Security Warning: ${path} is a symlink! Skipping.')
+            continue
+        }
+        info('Wiping: ${path}')
+        res := os.execute('shred -n 1 -z -u "${path}"')
+        if res.exit_code != 0 {
+            error2('Failed to shred ${path}: ${res.output}')
+            return
+        }
+    }
+    os.execute('sm fstrim')
+    success('Package ${pkg} removed securely.')
 }
 
 fn list_core() {
